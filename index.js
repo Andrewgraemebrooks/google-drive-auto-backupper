@@ -16,6 +16,8 @@ const { CLIENT_EMAIL, PRIVATE_KEY } = process.env;
 const auth = new google.auth.JWT(CLIENT_EMAIL, null, PRIVATE_KEY, scopes);
 const drive = google.drive({ version: 'v3', auth });
 
+const googleFolder = 'application/vnd.google-apps.folder';
+
 const outputDirectory = `${__dirname}/output`;
 if (!fs.existsSync(outputDirectory)) fs.mkdirSync(outputDirectory)
 
@@ -27,19 +29,23 @@ drive.files.list({}, async (err, res) => {
     return;
   }
   files.map(f => log.debug(f))
-  const output = fs.createWriteStream(`${outputDirectory}/${files[1].name}`)
-  await drive.files.get({
-    fileId: files[1].id,
-    alt: 'media'
-  }, { responseType: 'stream' }, (error, response) => {
-    if (error) {
-      log.error(error)
-    } else {
-      response.data
-        .on("end", () => log.debug("Done"))
-        .on("error", (newError) => log.error(newError))
-        .pipe(output)
-    }
+  const toDownload = files.filter(f => f.mimeType !== googleFolder);
+  toDownload.forEach(async (file) => {
+    log.debug(`Downloading ${file.name}`)
+    const output = fs.createWriteStream(`${outputDirectory}/${file.name}`)
+    await drive.files.get({
+      fileId: files[1].id,
+      alt: 'media'
+    }, { responseType: 'stream' }, (error, response) => {
+      if (error) {
+        log.error(error)
+      } else {
+        response.data
+          .on("end", () => log.debug("Done"))
+          .on("error", (newError) => log.error(newError))
+          .pipe(output)
+      }
+    })
   })
 });
 
