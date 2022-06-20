@@ -16,25 +16,49 @@ const { CLIENT_EMAIL, PRIVATE_KEY } = process.env;
 const auth = new google.auth.JWT(CLIENT_EMAIL, null, PRIVATE_KEY, scopes);
 const drive = google.drive({ version: 'v3', auth });
 
-const googleFolder = 'application/vnd.google-apps.folder';
+/**
+ * Creates a folder on the local filesystem
+ * @param {string} folderName The folder to be created
+ */
+const createFolder = (folderName) => {
+  fs.mkdirSync(folderName)
+}
 
 const outputDirectory = `${__dirname}/output`;
-if (!fs.existsSync(outputDirectory)) fs.mkdirSync(outputDirectory)
+if (!fs.existsSync(outputDirectory)) {
+  log.debug('Output folder doesn\'t exist, creating it now');
+  createFolder(outputDirectory)
+}
 
-drive.files.list({}, async (err, res) => {
-  if (err) throw err;
-  const { files } = res.data;
-  if (!files.length) {
-    log.debug('No files found');
-    return;
-  }
-  files.map(f => log.debug(f))
-  const toDownload = files.filter(f => f.mimeType !== googleFolder);
-  toDownload.forEach(async (file) => {
+/**
+ * Gets the list of all of the fild ids in a folder
+ * @param {string} folderId The id of the parent folder
+ * @return {array} An array of the files
+ */
+const getFiles = async (folderId) => {
+  const res = await drive.files.list({ q: `'${folderId}' in parents`});
+    // if (err) throw err;
+  log.debug('Files to download:')
+  log.debug(res.data.files);
+  return res.data.files
+}
+
+/**
+ * Downloads the files of a folder
+ * @param {array} files Array of files to download
+ * @param {string} folderName Name of parent folder
+ */
+const downloadFiles = (files, folderName) => {
+  files.forEach(async (file) => {
     log.debug(`Downloading ${file.name}`)
-    const output = fs.createWriteStream(`${outputDirectory}/${file.name}`)
+    const folderPath = `${outputDirectory}/${folderName}`;
+    if (!fs.existsSync(folderPath)) {
+      createFolder(folderPath)
+    }
+    const outputPath = `${folderPath}/${file.name}`
+    const output = fs.createWriteStream(outputPath)
     await drive.files.get({
-      fileId: files[1].id,
+      fileId: file.id,
       alt: 'media'
     }, { responseType: 'stream' }, (error, response) => {
       if (error) {
@@ -47,26 +71,35 @@ drive.files.list({}, async (err, res) => {
       }
     })
   })
+}
+
+/**
+ * Downloads the files in a folder
+ * @param {string} folderId The id of the folder
+ * @param {string} folderName The name of the folder
+ */
+const downloadFolder = async (folderId, folderName) => {
+  const files = await getFiles(folderId)
+
+  downloadFiles(files, folderName)
+}
+
+drive.files.list({}, async (err, res) => {
+  const folderType = 'application/vnd.google-apps.folder';
+  if (err) throw err;
+  const { files } = res.data;
+  if (!files.length) {
+    log.debug('No files found');
+    return;
+  }
+  files.map(f => log.debug(f))
+  files.forEach(async (file) => {
+    if (file.mimeType === folderType) {
+      downloadFolder(file.id, file.name)
+    }
+  })
 });
 
-// v2
-// drive.files.list({}, async (err, res) => {
-//   if (err) throw err;
-//   const { items } = res.data;
-//   if (!items.length) {
-//     log.debug('No items found');
-//     return;
-//   }
-//   // items.map(f => log.debug(f))
-//   // items.forEach(item => {
-//   //   if (!item.downloadUrl) return
-//   // })
-//   // const file = await drive.files.get({
-//   //   fileId: files[0].id
-//   // })
-//   // console.log(file)
-//   // fs.writeFile(files[0].name, )
-// });
 
 // // create a file to stream archive data to.
 // const output = fs.createWriteStream(`${__dirname}/example.zip`);
